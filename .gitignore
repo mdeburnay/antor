@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Env / secrets (if you ever add API keys or .env)
+.env
+.env.local
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE (optional; remove if you want to share editor config)
+.idea/
+.vscode/
+*.swp
+*.swo
