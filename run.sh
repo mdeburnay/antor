@@ -8,4 +8,9 @@ if [[ "$(uname)" == Darwin ]]; then
   echo "Waiting for Anki to start…"
   sleep 3
 fi
-exec python3 -m streamlit run app.py
+# Use venv Python if it exists, otherwise system python3
+if [[ -x "$(dirname "$0")/venv/bin/python" ]]; then
+  exec "$(dirname "$0")/venv/bin/python" -m streamlit run app.py
+else
+  exec python3 -m streamlit run app.py
+fi

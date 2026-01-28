@@ -16,8 +16,17 @@ Generate flashcards on a topic using a local LLM (Ollama) and add them to Anki v
    - Pull a model, e.g.: `ollama pull llama3.2`
    - Set `OLLAMA_MODEL` in `config.py` to match.
 
-3. **Python**
-   - From the project directory: `python3 -m pip install -r requirements.txt`
+3. **Python** (3.9–3.13; Streamlit does not support 3.14 yet.)
+   - If Homebrew gave you Python 3.14, install 3.12 and use it for this project:
+     ```bash
+     brew install python@3.12
+     cd /path/to/antor
+     rm -rf venv
+     /opt/homebrew/opt/python@3.12/bin/python3.12 -m venv venv
+     ./venv/bin/pip install -r requirements.txt
+     ```
+   - Then run with `./run.sh` or `./venv/bin/python -m streamlit run app.py`.
+   - Or, with any supported Python: `python3 -m pip install -r requirements.txt` then `python3 -m streamlit run app.py`.
 
 ## Spinning up Antor
 
