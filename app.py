@@ -10,6 +10,7 @@ from anki_client import get_version, get_deck_names, get_existing_questions, add
 from ollama_client import generate_cards, generate_cards_from_transcript
 from main import preview_cards, build_anki_notes
 from youtube_client import get_transcript
+from article_client import get_article_text
 
 st.set_page_config(page_title="Antor — Flashcard generator", layout="centered")
 st.title("Antor")
@@ -68,7 +69,7 @@ if "topic_used" not in st.session_state:
 if "deck_used" not in st.session_state:
     st.session_state.deck_used = None
 
-tab_topic, tab_youtube = st.tabs(["By topic", "From YouTube"])
+tab_topic, tab_youtube, tab_url = st.tabs(["By topic", "From YouTube", "From URL"])
 
 with tab_topic:
     topic_input = st.text_input("Topic", placeholder="e.g. machine learning", label_visibility="collapsed", key="topic_input")
@@ -84,6 +85,16 @@ with tab_youtube:
     )
     youtube_url = (youtube_url_input or "").strip()
     youtube_clicked = st.button("Fetch transcript & generate cards", type="primary", key="btn_youtube")
+
+with tab_url:
+    article_url_input = st.text_input(
+        "Article URL",
+        placeholder="https://example.com/article or any article link",
+        label_visibility="collapsed",
+        key="article_url",
+    )
+    article_url = (article_url_input or "").strip()
+    url_clicked = st.button("Fetch article & generate cards", type="primary", key="btn_article_url")
 
 def run_generate(topic_to_use: str, deck_name: str):
     """Generate cards for the given topic and deck (passed explicitly for click-time values)."""
@@ -165,11 +176,56 @@ def run_youtube(youtube_url_to_use: str, deck_name: str):
         new_count = sum(1 for c in cards_with_dup if not c["is_duplicate"])
         status.update(label=f"Done — {len(cards_with_dup)} cards ({new_count} new) → “{deck_name}”", state="complete")
 
+def run_article_url(url_to_use: str, deck_name: str):
+    """Fetch article, extract main text, and generate cards from it."""
+    if not url_to_use:
+        st.error("Enter an article URL.")
+        return
+    if not deck_name:
+        st.error("Enter or select a deck.")
+        return
+    with st.status("Fetching article & generating cards…", expanded=True) as status:
+        try:
+            get_version()
+        except Exception as e:
+            st.error(f"AnkiConnect not available. Is Anki running with the add-on? {e}")
+            status.update(label="Error", state="error")
+            return
+        try:
+            text = get_article_text(url_to_use)
+        except ValueError as e:
+            st.error(str(e))
+            status.update(label="Error", state="error")
+            return
+        status.update(label="Article fetched. Generating cards…", state="running")
+        try:
+            existing = get_existing_questions(deck_name)
+        except Exception:
+            existing = set()
+        try:
+            cards = generate_cards_from_transcript(text)
+        except Exception as e:
+            st.error(f"Ollama error: {e}")
+            status.update(label="Error", state="error")
+            return
+        if not cards:
+            st.error("No cards returned. Check model and prompt.")
+            status.update(label="Error", state="error")
+            return
+        cards_with_dup = preview_cards(cards, existing)
+        st.session_state.cards = cards_with_dup
+        st.session_state.topic_used = "Article"
+        st.session_state.deck_used = deck_name
+        new_count = sum(1 for c in cards_with_dup if not c["is_duplicate"])
+        status.update(label=f"Done — {len(cards_with_dup)} cards ({new_count} new) → “{deck_name}”", state="complete")
+
 if generate_clicked:
     topic = normalize_topic(st.session_state.get("topic_input") or "")
     run_generate(topic, deck_to_use)
 if youtube_clicked:
     run_youtube(youtube_url, deck_to_use)
+if url_clicked:
+    run_article_url(article_url, deck_to_use)
 
 col1, col2, _ = st.columns([1, 1, 3])
 with col1:

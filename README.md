@@ -34,10 +34,12 @@ Generate flashcards on a topic using a local LLM (Ollama) and add them to Anki v
 **Anki check:** When the Streamlit app loads, it checks whether Anki (with AnkiConnect) is reachable. If not, you’ll see a warning at the top. Start Anki and reload the page.
 
 **Script (macOS/Linux):** From the project root you can run:
-   ```bash
-   chmod +x run.sh && ./run.sh
-   ```
-   or `bash run.sh`. This opens Anki (on macOS), waits a few seconds, then starts Streamlit. On other systems, start Anki yourself and run `python3 -m streamlit run app.py`.
+
+```bash
+chmod +x run.sh && ./run.sh
+```
+
+or `bash run.sh`. This opens Anki (on macOS), waits a few seconds, then starts Streamlit. On other systems, start Anki yourself and run `python3 -m streamlit run app.py`.
 
 ## Usage
 
@@ -49,7 +51,7 @@ Generate flashcards on a topic using a local LLM (Ollama) and add them to Anki v
    python3 -m streamlit run app.py
    ```
 3. Open the URL in your browser (usually http://localhost:8501).
-4. **By topic:** enter a topic, click **Generate**. **From YouTube:** open the “From YouTube” tab, paste a video URL, click **Fetch transcript & generate cards**. In both cases, review the preview and click **Add to Anki** to add new cards (duplicates are skipped).
+4. **By topic:** enter a topic, click **Generate**. **From YouTube:** paste a video URL, click **Fetch transcript & generate cards**. **From URL:** paste an article URL, click **Fetch article & generate cards**. In all cases, review the preview and click **Add to Anki** to add new cards (duplicates are skipped).
 
 ### CLI
 
@@ -81,5 +83,6 @@ Edit `config.py` to change:
 - `anki_client.py` – AnkiConnect API (find notes, add notes, etc.)
 - `ollama_client.py` – Ollama chat API and JSON parsing (topic + transcript)
 - `youtube_client.py` – YouTube transcript fetch (no API key)
+- `article_client.py` – Article text extraction from URLs (trafilatura)
 - `main.py` – CLI: topic → generate → preview → optional add
 - `app.py` – Streamlit UI: by topic, from YouTube, deck choice, sync
