@@ -8,7 +8,11 @@ import streamlit as st
 from config import DECK_NAME, CARDS_PER_TOPIC
 from anki_client import get_version, get_deck_names, get_existing_questions, add_notes, sync, create_deck
 from ollama_client import generate_cards, generate_cards_from_transcript
-from main import preview_cards, build_anki_notes
+
+# Card style values (must match ollama_client.CARD_STYLE_*)
+CARD_STYLE_ELI5 = "eli5_technical"
+CARD_STYLE_CODE = "code"
+from main import preview_cards, build_anki_notes, _is_code_style_card
 from youtube_client import get_transcript
 from article_client import get_article_text
 
@@ -61,6 +65,16 @@ if selected_deck_option == NEW_DECK_OPTION:
     deck_to_use = normalize_topic(new_deck_name or "") or DECK_NAME
 else:
     deck_to_use = selected_deck_option
+
+# Card style: ELI5/Technical or Code snippet
+CARD_STYLE_LABELS = {"eli5_technical": "ELI5 / Technical", "code": "Code snippet (question + code + answer)"}
+card_style = st.radio(
+    "Card style",
+    options=[CARD_STYLE_ELI5, CARD_STYLE_CODE],
+    format_func=lambda x: CARD_STYLE_LABELS[x],
+    horizontal=True,
+    key="card_style",
+)
 
 if "cards" not in st.session_state:
     st.session_state.cards = None
@@ -117,7 +131,7 @@ def run_generate(topic_to_use: str, deck_name: str):
             existing = set()
         st.write(f"Generating {CARDS_PER_TOPIC} cards for “{topic_to_use}” → deck “{deck_name}” …")
         try:
-            cards = generate_cards(topic_to_use)
+            cards = generate_cards(topic_to_use, card_style=card_style)
         except Exception as e:
             st.error(f"Ollama error: {e}")
             status.update(label="Error", state="error")
@@ -160,7 +174,7 @@ def run_youtube(youtube_url_to_use: str, deck_name: str):
         except Exception:
             existing = set()
         try:
-            cards = generate_cards_from_transcript(transcript)
+            cards = generate_cards_from_transcript(transcript, card_style=card_style)
         except Exception as e:
             st.error(f"Ollama error: {e}")
             status.update(label="Error", state="error")
@@ -203,7 +217,7 @@ def run_article_url(url_to_use: str, deck_name: str):
         except Exception:
             existing = set()
         try:
-            cards = generate_cards_from_transcript(text)
+            cards = generate_cards_from_transcript(text, card_style=card_style)
         except Exception as e:
             st.error(f"Ollama error: {e}")
             status.update(label="Error", state="error")
@@ -253,10 +267,16 @@ if st.session_state.cards:
         with st.expander(label, expanded=(i == 1)):
             st.markdown("**Question**")
             st.write(c["question"])
-            st.markdown("**ELI5**")
-            st.write(c["eli5"])
-            st.markdown("**Technical**")
-            st.write(c["technical"])
+            if _is_code_style_card(c):
+                st.markdown("**Code**")
+                st.code(c["code"], language=None)
+                st.markdown("**Answer**")
+                st.write(c["answer"])
+            else:
+                st.markdown("**ELI5**")
+                st.write(c["eli5"])
+                st.markdown("**Technical**")
+                st.write(c["technical"])
 
     if add_clicked:
         # Use current deck selection so changing deck before Add sends cards to the new deck

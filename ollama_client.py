@@ -14,7 +14,8 @@ from config import (
 )
 
 
-SYSTEM_PROMPT = """You generate flashcard content. For each card output:
+# --- ELI5 / Technical style: question + plain explanation + technical explanation ---
+SYSTEM_PROMPT_ELI5 = """You generate flashcard content. For each card output:
 - question: one short question or prompt
 - eli5: a 2-3 sentence explanation in plain language (ELI5 style)
 - technical: a 2-4 sentence precise technical explanation
@@ -22,21 +23,69 @@ SYSTEM_PROMPT = """You generate flashcard content. For each card output:
 Be concise. Output exactly one JSON array of objects with keys: question, eli5, technical.
 Use double quotes for all JSON keys and string values. No markdown, no text before or after the array."""
 
+CARD_RESPONSE_SCHEMA_ELI5 = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "question": {"type": "string"},
+            "eli5": {"type": "string"},
+            "technical": {"type": "string"},
+        },
+        "required": ["question", "eli5", "technical"],
+        "additionalProperties": False,
+    },
+}
 
-def generate_cards(topic: str) -> list[dict]:
+# --- Code snippet style: question + code + single answer (what it does and why) ---
+SYSTEM_PROMPT_CODE = """You generate flashcard content about code. For each card output:
+- question: one short question (e.g. "What does this code do?" or "What is the output?")
+- code: a short code snippet (few lines) that the question refers to
+- answer: a clear explanation of what the code does and why (2-4 sentences)
+
+Be concise. Output exactly one JSON array of objects with keys: question, code, answer.
+Use double quotes for all JSON keys and string values. Escape any quotes inside strings. No markdown, no text before or after the array."""
+
+CARD_RESPONSE_SCHEMA_CODE = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "question": {"type": "string"},
+            "code": {"type": "string"},
+            "answer": {"type": "string"},
+        },
+        "required": ["question", "code", "answer"],
+        "additionalProperties": False,
+    },
+}
+
+CARD_STYLE_ELI5 = "eli5_technical"
+CARD_STYLE_CODE = "code"
+
+
+def generate_cards(topic: str, card_style: str = CARD_STYLE_ELI5) -> list[dict]:
     """
     Ask Ollama to generate CARDS_PER_TOPIC flashcards for the given topic.
-    Returns a list of dicts with keys: question, eli5, technical.
+    card_style: "eli5_technical" (question, eli5, technical) or "code" (question, code, answer).
+    Returns a list of dicts with keys: question, code, eli5, technical, answer (unified shape).
     """
+    if card_style == CARD_STYLE_CODE:
+        system_prompt = SYSTEM_PROMPT_CODE
+        schema = CARD_RESPONSE_SCHEMA_CODE
+    else:
+        system_prompt = SYSTEM_PROMPT_ELI5
+        schema = CARD_RESPONSE_SCHEMA_ELI5
     user_prompt = f"Generate exactly {CARDS_PER_TOPIC} flashcards about: {topic}"
     url = f"{OLLAMA_URL.rstrip('/')}/api/chat"
     payload = {
         "model": OLLAMA_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "stream": False,
+        "format": schema,
     }
     resp = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT_SECONDS)
     resp.raise_for_status()
@@ -46,7 +95,7 @@ def generate_cards(topic: str) -> list[dict]:
         raise ValueError(
             "Ollama returned an empty response. Is the model running? Try: ollama list"
         )
-    cards = _parse_cards_json(content)
+    cards = _parse_cards_json(content, card_style)
     if not cards:
         snippet = (content[:500] + "..." if len(content) > 500 else content).replace("\n", " ")
         raise ValueError(
@@ -55,21 +104,28 @@ def generate_cards(topic: str) -> list[dict]:
     return cards
 
 
-def generate_cards_from_transcript(transcript: str) -> list[dict]:
+def generate_cards_from_transcript(transcript: str, card_style: str = CARD_STYLE_ELI5) -> list[dict]:
     """
     Generate CARDS_PER_TOPIC flashcards from YouTube (or other) transcript text.
-    Transcript is truncated to MAX_TRANSCRIPT_CHARS to fit model context.
-    Returns same shape as generate_cards: list of dicts with question, eli5, technical.
+    card_style: "eli5_technical" or "code". Returns unified shape: question, code, eli5, technical, answer.
     """
     text = (transcript or "").strip()
     if not text:
         raise ValueError("Transcript text is empty.")
     if len(text) > MAX_TRANSCRIPT_CHARS:
         text = text[:MAX_TRANSCRIPT_CHARS] + "\n\n[Transcript truncated for length.]"
+    if card_style == CARD_STYLE_CODE:
+        system_prompt = SYSTEM_PROMPT_CODE
+        schema = CARD_RESPONSE_SCHEMA_CODE
+        format_instruction = "For each card output: question, code, answer (same JSON format as before)."
+    else:
+        system_prompt = SYSTEM_PROMPT_ELI5
+        schema = CARD_RESPONSE_SCHEMA_ELI5
+        format_instruction = "For each card output: question, eli5, technical (same JSON format as before)."
     user_prompt = (
         f"From the following transcript, generate exactly {CARDS_PER_TOPIC} flashcards. "
         "Base each card on concrete facts or ideas from the transcript. "
-        "For each card output: question, eli5, technical (same JSON format as before).\n\n"
+        f"{format_instruction}\n\n"
         "Transcript:\n\n"
         f"{text}"
     )
@@ -77,10 +133,11 @@ def generate_cards_from_transcript(transcript: str) -> list[dict]:
     payload = {
         "model": OLLAMA_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "stream": False,
+        "format": schema,
     }
     resp = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT_SECONDS)
     resp.raise_for_status()
@@ -90,7 +147,7 @@ def generate_cards_from_transcript(transcript: str) -> list[dict]:
         raise ValueError(
             "Ollama returned an empty response. Is the model running? Try: ollama list"
         )
-    cards = _parse_cards_json(content)
+    cards = _parse_cards_json(content, card_style)
     if not cards:
         snippet = (content[:500] + "..." if len(content) > 500 else content).replace("\n", " ")
         raise ValueError(
@@ -99,10 +156,9 @@ def generate_cards_from_transcript(transcript: str) -> list[dict]:
     return cards
 
 
-def _parse_cards_json(raw: str) -> list[dict]:
-    """Parse LLM output into a list of card dicts. Strips markdown code fences if present."""
+def _parse_cards_json(raw: str, card_style: str = CARD_STYLE_ELI5) -> list[dict]:
+    """Parse LLM output into a list of card dicts. Normalizes to unified shape: question, code, eli5, technical, answer."""
     text = raw.strip()
-    # Remove optional ```json ... ``` wrapper
     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
     if match:
         text = match.group(1).strip()
@@ -111,25 +167,22 @@ def _parse_cards_json(raw: str) -> list[dict]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        # Try to extract a JSON array: first '[' to last ']' (handles preamble/extra text)
-        start = text.find("[")
-        end = text.rfind("]")
+        start, end = text.find("["), text.rfind("]")
         if start != -1 and end != -1 and end > start:
             try:
                 parsed = json.loads(text[start : end + 1])
             except json.JSONDecodeError:
-                # Repair: model sometimes outputs [ "question": "...", "eli5": "...", "technical": "...", "question": ... ] (array with object-style pairs but no {})
-                repaired = _repair_array_of_objects(text[start : end + 1])
-                if repaired:
-                    try:
-                        parsed = json.loads(repaired)
-                    except json.JSONDecodeError:
-                        pass
+                if card_style == CARD_STYLE_ELI5:
+                    repaired = _repair_array_of_objects(text[start : end + 1])
+                    if repaired:
+                        try:
+                            parsed = json.loads(repaired)
+                        except json.JSONDecodeError:
+                            pass
 
-    if parsed is None:
+    if parsed is None and card_style == CARD_STYLE_ELI5:
         parsed = _parse_flat_key_value_array(text)
-    if parsed is None:
-        # Fallback: extract "question": "..", "eli5": "..", "technical": ".." by scanning (handles broken array-with-object-keys format)
+    if parsed is None and card_style == CARD_STYLE_ELI5:
         parsed = _parse_array_like_key_value_text(text)
     if parsed is None:
         snippet = (raw[:500] + "..." if len(raw) > 500 else raw).replace("\n", " ")
@@ -139,15 +192,17 @@ def _parse_cards_json(raw: str) -> list[dict]:
 
     if not isinstance(parsed, list):
         parsed = [parsed]
-    # Normalize keys to question, eli5, technical
+    # Normalize to unified shape: question, code, eli5, technical, answer
     cards = []
-    for i, item in enumerate(parsed):
+    for item in parsed:
         if not isinstance(item, dict):
             continue
         cards.append({
             "question": str(item.get("question", item.get("Question", ""))).strip(),
+            "code": str(item.get("code", item.get("Code", ""))).strip(),
             "eli5": str(item.get("eli5", item.get("elI5", item.get("ELI5", "")))).strip(),
             "technical": str(item.get("technical", item.get("Technical", ""))).strip(),
+            "answer": str(item.get("answer", item.get("Answer", ""))).strip(),
         })
     return cards
 

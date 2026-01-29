@@ -8,11 +8,16 @@ Usage:
 """
 
 import argparse
+import html
 import sys
 
 from config import DECK_NAME, NOTE_TYPE, CARDS_PER_TOPIC
 from anki_client import get_version, get_existing_questions, add_notes, _normalize_question
 from ollama_client import generate_cards
+
+# Card style values (must match ollama_client.CARD_STYLE_*)
+CARD_STYLE_ELI5 = "eli5_technical"
+CARD_STYLE_CODE = "code"
 
 
 def preview_cards(cards: list[dict], existing: set[str]) -> list[dict]:
@@ -24,6 +29,11 @@ def preview_cards(cards: list[dict], existing: set[str]) -> list[dict]:
     return result
 
 
+def _is_code_style_card(c: dict) -> bool:
+    """True if card has code + answer (code-snippet style)."""
+    return bool(c.get("code") and c.get("answer"))
+
+
 def print_preview(cards_with_dup: list[dict], topic: str) -> None:
     """Print a simple terminal preview of the cards."""
     print(f"\n--- Preview: {len(cards_with_dup)} cards for topic '{topic}' ---\n")
@@ -31,8 +41,12 @@ def print_preview(cards_with_dup: list[dict], topic: str) -> None:
         dup = " (DUPLICATE)" if c["is_duplicate"] else ""
         print(f"[{i}]{dup}")
         print(f"  Q: {c['question']}")
-        print(f"  ELI5: {c['eli5'][:120]}{'...' if len(c['eli5']) > 120 else ''}")
-        print(f"  Technical: {c['technical'][:120]}{'...' if len(c['technical']) > 120 else ''}")
+        if _is_code_style_card(c):
+            print(f"  Code: {c['code'][:120]}{'...' if len(c['code']) > 120 else ''}")
+            print(f"  Answer: {c['answer'][:120]}{'...' if len(c['answer']) > 120 else ''}")
+        else:
+            print(f"  ELI5: {c['eli5'][:120]}{'...' if len(c['eli5']) > 120 else ''}")
+            print(f"  Technical: {c['technical'][:120]}{'...' if len(c['technical']) > 120 else ''}")
         print()
     new_count = sum(1 for c in cards_with_dup if not c["is_duplicate"])
     print(f"--- {new_count} new, {len(cards_with_dup) - new_count} duplicates ---\n")
@@ -44,28 +58,31 @@ def build_anki_notes(
     only_new: bool = True,
     deck_name: str | None = None,
 ) -> list[dict]:
-    """Build payload for addNotes. Uses Basic model: Front = question, Back = ELI5 + Technical."""
+    """Build payload for addNotes. Code-style: Front = question + code, Back = answer. ELI5-style: Front = question, Back = ELI5 + Technical."""
     deck = (deck_name or DECK_NAME).strip() or DECK_NAME
     notes = []
     for c in cards_with_dup:
         if only_new and c.get("is_duplicate"):
             continue
-        back = f"ELI5: {c['eli5']}<br><br>——<br><br>Technical: {c['technical']}"
+        if _is_code_style_card(c):
+            front = c["question"] + "<br><br><pre>" + html.escape(c["code"]) + "</pre>"
+            back = c["answer"]
+        else:
+            front = c["question"]
+            back = f"ELI5: {c['eli5']}<br><br>——<br><br>Technical: {c['technical']}"
         notes.append({
             "deckName": deck,
             "modelName": NOTE_TYPE,
-            "fields": {
-                "Front": c["question"],
-                "Back": back,
-            },
+            "fields": {"Front": front, "Back": back},
         })
     return notes
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate flashcards for a topic with Ollama + Anki")
-    parser.add_argument("topic", help="Topic to generate 5 flashcards about")
+    parser.add_argument("topic", help="Topic to generate flashcards about")
     parser.add_argument("--add", action="store_true", help="Add new cards to Anki after preview")
+    parser.add_argument("--code", action="store_true", help="Use code-snippet style: question + code + answer (what it does and why)")
     args = parser.parse_args()
     topic = args.topic.strip()
     if not topic:
@@ -87,9 +104,11 @@ def main() -> None:
         existing = set()
 
     # 3) Generate cards with Ollama
-    print(f"Generating {CARDS_PER_TOPIC} cards for '{topic}' via Ollama...")
+    card_style = CARD_STYLE_CODE if args.code else CARD_STYLE_ELI5
+    style_label = "code-snippet" if args.code else "ELI5/Technical"
+    print(f"Generating {CARDS_PER_TOPIC} cards for '{topic}' ({style_label}) via Ollama...")
     try:
-        cards = generate_cards(topic)
+        cards = generate_cards(topic, card_style=card_style)
     except Exception as e:
         print(f"Ollama error: {e}", file=sys.stderr)
         sys.exit(1)
